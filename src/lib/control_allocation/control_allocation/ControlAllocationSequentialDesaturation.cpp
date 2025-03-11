@@ -167,7 +167,7 @@ ControlAllocationSequentialDesaturation::mixAirmodeRPY()
 
 	// Unsaturate yaw (in case upper and lower bounds are exceeded)
 	// to prioritize roll/pitch over yaw.
-	desaturateActuators(_actuator_sp, yaw);
+//	desaturateActuators(_actuator_sp, yaw);  //GK - commented
 }
 
 void
