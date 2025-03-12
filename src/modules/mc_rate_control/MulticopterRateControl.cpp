@@ -150,10 +150,11 @@ MulticopterRateControl::Run()
 
 		// use rates setpoint topic
 		vehicle_rates_setpoint_s vehicle_rates_setpoint{};
+		manual_control_setpoint_s manual_control_setpoint;
 
 		if (_vehicle_control_mode.flag_control_manual_enabled && !_vehicle_control_mode.flag_control_attitude_enabled) {
 			// generate the rate setpoint from sticks
-			manual_control_setpoint_s manual_control_setpoint;
+			// manual_control_setpoint_s manual_control_setpoint;
 
 			if (_manual_control_setpoint_sub.update(&manual_control_setpoint)) {
 				// manual rates control - ACRO mode
@@ -256,9 +257,14 @@ MulticopterRateControl::Run()
 			}
 
 			vehicle_thrust_setpoint.timestamp_sample = angular_velocity.timestamp_sample;
+
+			vehicle_thrust_setpoint.xyz[0] = 0.f; //manual_control_setpoint.roll;  // Roll sp translates to X thrust - GK
+			vehicle_thrust_setpoint.xyz[1] = manual_control_setpoint.throttle;  // Pitch sp translates to Y thrust - GK
+
 			vehicle_thrust_setpoint.timestamp = hrt_absolute_time();
 			_vehicle_thrust_setpoint_pub.publish(vehicle_thrust_setpoint);
 
+			vehicle_torque_setpoint.xyz[0] = vehicle_torque_setpoint.xyz[1] = 0.f; //zero Roll and pitch torqu commands - GK
 			vehicle_torque_setpoint.timestamp_sample = angular_velocity.timestamp_sample;
 			vehicle_torque_setpoint.timestamp = hrt_absolute_time();
 			_vehicle_torque_setpoint_pub.publish(vehicle_torque_setpoint);

@@ -1,0 +1,11 @@
+#!/bin/sh
+#
+# shadowlift default parameters.
+#
+# NOTE: Script variables are declared/initialized/unset in the rcS script.
+#
+
+set VEHICLE_TYPE mc
+
+# MAV_TYPE_MC 2
+param set-default MAV_TYPE 2

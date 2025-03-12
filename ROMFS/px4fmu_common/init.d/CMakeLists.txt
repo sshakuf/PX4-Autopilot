@@ -54,6 +54,13 @@ if(CONFIG_MODULES_AIRSHIP_ATT_CONTROL)
 	)
 endif()
 
+# if(CONFIG_MODULES_SHADOWLIFT_ATT_CONTROL)
+# 	px4_add_romfs_files(
+# 		rc.shadowlift_apps
+# 		rc.shadowlift_defaults
+# 	)
+# endif()
+
 if(CONFIG_MODULES_FW_RATE_CONTROL)
 	px4_add_romfs_files(
 		rc.fw_apps
