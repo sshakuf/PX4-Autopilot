@@ -99,4 +99,8 @@ private:
 
 	perf_counter_t _loop_perf;
 
+	DEFINE_PARAMETERS(
+	(ParamFloat<px4::params::MC_YAWRATE_P>) _param_mc_yawrate_p
+	)
+
 };

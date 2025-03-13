@@ -101,12 +101,14 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
 	v_torque_sp.timestamp = hrt_absolute_time();
 	v_torque_sp.timestamp_sample = timestamp_sample;
 
-	float yaw_rate_sp = 0.f;
+	float yaw_rate_sp = _manual_control_setpoint.yaw; //  0.f;
 	float yaw_rate_err = yaw_rate_sp- current_yaw_rate;
 
-	double yaw_torque = 0.2f * yaw_rate_err;
-	yaw_torque = yaw_torque > 0.2 ? 0.2: yaw_torque;
-	yaw_torque = yaw_torque < -0.2 ? -0.2: yaw_torque;
+	const double max_yaw_torque = 0.5f;
+
+	double yaw_torque = _param_mc_yawrate_p.get() * yaw_rate_err;
+	yaw_torque = yaw_torque > max_yaw_torque ? max_yaw_torque: yaw_torque;
+	yaw_torque = yaw_torque < -max_yaw_torque ? -max_yaw_torque: yaw_torque;
 
 	// zero actuators if not armed
 	if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
@@ -153,6 +155,16 @@ ShadowliftAttitudeControl::Run()
 	}
 
 	perf_begin(_loop_perf);
+
+	// Check if parameters have changed
+	if (_parameter_update_sub.updated()) {
+		// clear update
+		parameter_update_s param_update;
+		_parameter_update_sub.copy(&param_update);
+
+		updateParams();
+
+	}
 
 	/* run controller on gyro changes */
 	vehicle_angular_velocity_s angular_velocity;
