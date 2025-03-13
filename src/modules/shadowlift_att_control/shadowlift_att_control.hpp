@@ -1,35 +1,4 @@
-/****************************************************************************
- *
- *   Copyright (c) 2013-2018 PX4 Development Team. All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * 1. Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- * 2. Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in
- *    the documentation and/or other materials provided with the
- *    distribution.
- * 3. Neither the name PX4 nor the names of its contributors may be
- *    used to endorse or promote products derived from this software
- *    without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE
- * COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING,
- * BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS
- * OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED
- * AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT
- * LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN
- * ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
- * POSSIBILITY OF SUCH DAMAGE.
- *
- ****************************************************************************/
+#pragma once
 
 #include <px4_platform_common/module.h>
 #include <px4_platform_common/module_params.h>
@@ -43,7 +12,7 @@
 #include <uORB/topics/vehicle_thrust_setpoint.h>
 #include <uORB/topics/vehicle_torque_setpoint.h>
 #include <uORB/topics/vehicle_attitude.h>
-
+#include <uORB/topics/sensor_accel.h>
 
 using namespace time_literals;
 
@@ -82,9 +51,22 @@ private:
 	void publishThrustSetpoint(const hrt_abstime &timestamp_sample);
 	void publishTorqueSetpoint2(const hrt_abstime &timestamp_sample, const float &current_yaw_rate);
 
+	/**
+	 * Apply PID controller for X and Y axes acceleration control
+	 *
+	 * @param accel_x Current X acceleration in m/s^2
+	 * @param accel_y Current Y acceleration in m/s^2
+	 * @param dt Time step in seconds
+	 * @param x_output Output control value for X axis
+	 * @param y_output Output control value for Y axis
+	 * @return true if control is active, false if manual control should be used
+	 */
+	bool applyPidControl(float accel_x, float accel_y, float dt, float &x_output, float &y_output);
+
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
+	uORB::Subscription _sensor_accel_sub{ORB_ID(sensor_accel)};
 
 	uORB::SubscriptionCallbackWorkItem _vehicle_angular_velocity_sub{this, ORB_ID(vehicle_angular_velocity)};
 	uORB::SubscriptionCallbackWorkItem _vehicle_attitude_sub{this, ORB_ID(vehicle_attitude)};
@@ -95,12 +77,27 @@ private:
 	hrt_abstime _last_run{0};
 	manual_control_setpoint_s       _manual_control_setpoint{};
 	vehicle_status_s                _vehicle_status{};
-	float torque_cmd[3] = {0,0,0};
+	//float torque_cmd[3] = {0,0,0};
+
+	// PID controller state variables for X axis
+	float _x_error_prev{0.0f};
+	float _x_error_integral{0.0f};
+	// PID controller state variables for Y axis
+	float _y_error_prev{0.0f};
+	float _y_error_integral{0.0f};
 
 	perf_counter_t _loop_perf;
 
 	DEFINE_PARAMETERS(
-	(ParamFloat<px4::params::MC_YAWRATE_P>) _param_mc_yawrate_p
+	(ParamFloat<px4::params::SL_YAWRATE_P>) _param_sl_yawrate_p,
+	(ParamFloat<px4::params::SL_YAWMAX_P>) _param_sl_yawmax_p,
+	(ParamInt<px4::params::SL_MODE>) _param_sl_mode,
+	(ParamFloat<px4::params::SL_XACC_P>) _param_sl_xacc_p,
+	(ParamFloat<px4::params::SL_XACC_I>) _param_sl_xacc_i,
+	(ParamFloat<px4::params::SL_XACC_D>) _param_sl_xacc_d,
+	(ParamFloat<px4::params::SL_YACC_P>) _param_sl_yacc_p,
+	(ParamFloat<px4::params::SL_YACC_I>) _param_sl_yacc_i,
+	(ParamFloat<px4::params::SL_YACC_D>) _param_sl_yacc_d,
+	(ParamFloat<px4::params::SL_XY_MAXOUT>) _param_sl_xy_maxout
 	)
-
 };

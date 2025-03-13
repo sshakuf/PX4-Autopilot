@@ -42,6 +42,114 @@
 
 using namespace matrix;
 
+// In shadowlift_att_control.cpp add the implementation of the method:
+bool ShadowliftAttitudeControl::applyPidControl(float accel_x, float accel_y, float dt, float &x_output, float &y_output)
+{
+    // Check if manual control is active (non-zero inputs indicate user control)
+    const bool manual_control_active = (fabsf(_manual_control_setpoint.pitch) > 0.01f ||
+                                       fabsf(_manual_control_setpoint.roll) > 0.01f);
+
+    // If manual control is active, let it override the PID
+    if (manual_control_active) {
+        // Reset PID state to prevent windup
+        _x_error_integral = 0.0f;
+        _y_error_integral = 0.0f;
+        _x_error_prev = 0.0f;
+        _y_error_prev = 0.0f;
+        return false;
+    }
+
+    // X-axis PID control (pitch control)
+    float x_error = 0.0f - accel_x; // Target is zero acceleration
+
+    // Anti-windup for integrator
+    const float max_integral = _param_sl_xy_maxout.get() / _param_sl_xacc_i.get();
+    _x_error_integral += x_error * dt;
+    _x_error_integral = math::constrain(_x_error_integral, -max_integral, max_integral);
+
+    // Calculate derivative (with filtering)
+    float x_error_derivative = (x_error - _x_error_prev) / dt;
+    _x_error_prev = x_error;
+
+    // Calculate PID output
+    x_output = _param_sl_xacc_p.get() * x_error +
+              _param_sl_xacc_i.get() * _x_error_integral +
+              _param_sl_xacc_d.get() * x_error_derivative;
+
+    // Y-axis PID control (roll control)
+    float y_error = 0.0f - accel_y; // Target is zero acceleration
+
+    // Anti-windup for integrator
+    const float max_integral_y = _param_sl_xy_maxout.get() / _param_sl_yacc_i.get();
+    _y_error_integral += y_error * dt;
+    _y_error_integral = math::constrain(_y_error_integral, -max_integral_y, max_integral_y);
+
+    // Calculate derivative (with filtering)
+    float y_error_derivative = (y_error - _y_error_prev) / dt;
+    _y_error_prev = y_error;
+
+    // Calculate PID output
+    y_output = _param_sl_yacc_p.get() * y_error +
+              _param_sl_yacc_i.get() * _y_error_integral +
+              _param_sl_yacc_d.get() * y_error_derivative;
+
+    // Limit maximum output
+    const float max_output = _param_sl_xy_maxout.get();
+    x_output = math::constrain(x_output, -max_output, max_output);
+    y_output = math::constrain(y_output, -max_output, max_output);
+
+    return true;
+}
+
+// Modify the publishThrustSetpoint method in shadowlift_att_control.cpp to use PID when needed:
+void ShadowliftAttitudeControl::publishThrustSetpoint(const hrt_abstime &timestamp_sample)
+{
+    vehicle_thrust_setpoint_s v_thrust_sp = {};
+    v_thrust_sp.timestamp = hrt_absolute_time();
+    v_thrust_sp.timestamp_sample = timestamp_sample;
+
+    // Check if we're armed
+    if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
+        // Get accelerometer data
+        sensor_accel_s accel_data;
+        if (_sensor_accel_sub.update(&accel_data)) {
+            // Calculate time step
+            const float dt = math::constrain(((accel_data.timestamp - _last_run) * 1e-6f), 0.0002f, 0.02f);
+
+            // Store current acceleration for PID controller
+            float accel_x = accel_data.x;
+            float accel_y = accel_data.y;
+
+            // PID outputs for X and Y axes
+            float x_output = 0.0f;
+            float y_output = 0.0f;
+
+            // Apply PID control if no manual input
+            bool pid_active = applyPidControl(accel_x, accel_y, dt, x_output, y_output);
+
+            if (pid_active) {
+                // Use PID outputs for thrust setpoints
+                v_thrust_sp.xyz[0] = x_output; // Pitch control
+                v_thrust_sp.xyz[1] = y_output; // Roll control
+            } else {
+                // Use manual control inputs
+                v_thrust_sp.xyz[0] = _manual_control_setpoint.pitch;
+                v_thrust_sp.xyz[1] = _manual_control_setpoint.roll;
+            }
+
+            _last_run = accel_data.timestamp;
+        } else {
+            // If no accelerometer data, fall back to manual control
+            v_thrust_sp.xyz[0] = _manual_control_setpoint.pitch;
+            v_thrust_sp.xyz[1] = _manual_control_setpoint.roll;
+        }
+    }
+
+    _vehicle_thrust_setpoint_pub.publish(v_thrust_sp);
+}
+
+
+
 ShadowliftAttitudeControl::ShadowliftAttitudeControl() :
 	ModuleParams(nullptr),
 	WorkItem(MODULE_NAME, px4::wq_configurations::rate_ctrl),
@@ -104,9 +212,9 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
 	float yaw_rate_sp = _manual_control_setpoint.yaw; //  0.f;
 	float yaw_rate_err = yaw_rate_sp- current_yaw_rate;
 
-	const double max_yaw_torque = 0.5f;
+	const float max_yaw_torque = _param_sl_yawmax_p.get();
 
-	double yaw_torque = _param_mc_yawrate_p.get() * yaw_rate_err;
+	float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
 	yaw_torque = yaw_torque > max_yaw_torque ? max_yaw_torque: yaw_torque;
 	yaw_torque = yaw_torque < -max_yaw_torque ? -max_yaw_torque: yaw_torque;
 
@@ -120,95 +228,68 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
 	_vehicle_torque_setpoint_pub.publish(v_torque_sp);
 }
 
-void ShadowliftAttitudeControl::publishThrustSetpoint(const hrt_abstime &timestamp_sample)
-{
-	vehicle_thrust_setpoint_s v_thrust_sp = {};
-	v_thrust_sp.timestamp = hrt_absolute_time();
-	v_thrust_sp.timestamp_sample = timestamp_sample;
+// void ShadowliftAttitudeControl::publishThrustSetpoint(const hrt_abstime &timestamp_sample)
+// {
+// 	vehicle_thrust_setpoint_s v_thrust_sp = {};
+// 	v_thrust_sp.timestamp = hrt_absolute_time();
+// 	v_thrust_sp.timestamp_sample = timestamp_sample;
 
-	// zero actuators if not armed
-	if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
-		v_thrust_sp.xyz[0] = _manual_control_setpoint.pitch;
-		v_thrust_sp.xyz[1] = _manual_control_setpoint.roll;
-	}
+// 	// zero actuators if not armed
+// 	if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
+// 		v_thrust_sp.xyz[0] = _manual_control_setpoint.pitch;
+// 		v_thrust_sp.xyz[1] = _manual_control_setpoint.roll;
+// 	}
 
-	_vehicle_thrust_setpoint_pub.publish(v_thrust_sp);
-}
+// 	_vehicle_thrust_setpoint_pub.publish(v_thrust_sp);
+// }
 
 double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
 	return std::atan2(2.0 * (q_w * q_z + q_x * q_y), 1.0 - 2.0 * (q_y * q_y + q_z * q_z));
     }
 
-void
-ShadowliftAttitudeControl::Run()
-{
-	if (should_exit()) {
-		_vehicle_angular_velocity_sub.unregisterCallback();
-		exit_and_cleanup();
-		return;
-	}
+    void
+    ShadowliftAttitudeControl::Run()
+    {
+	    if (should_exit()) {
+		    _vehicle_angular_velocity_sub.unregisterCallback();
+		    exit_and_cleanup();
+		    return;
+	    }
 
-	if (should_exit()) {
-		_vehicle_attitude_sub.unregisterCallback();
-		exit_and_cleanup();
-		return;
-	}
+	    perf_begin(_loop_perf);
 
-	perf_begin(_loop_perf);
+	    // Check if parameters have changed
+	    if (_parameter_update_sub.updated()) {
+		    // clear update
+		    parameter_update_s param_update;
+		    _parameter_update_sub.copy(&param_update);
 
-	// Check if parameters have changed
-	if (_parameter_update_sub.updated()) {
-		// clear update
-		parameter_update_s param_update;
-		_parameter_update_sub.copy(&param_update);
+		    updateParams();
+	    }
 
-		updateParams();
+	    /* run controller on gyro changes */
+	    vehicle_angular_velocity_s angular_velocity;
 
-	}
+	    if (_vehicle_angular_velocity_sub.update(&angular_velocity)) {
+		    /* run the rate controller immediately after a gyro update */
+		    // Handle yaw control
+		    publishTorqueSetpoint2(angular_velocity.timestamp_sample, angular_velocity.xyz[2]);
 
-	/* run controller on gyro changes */
-	vehicle_angular_velocity_s angular_velocity;
+		    // Handle x/y stabilization or manual control
+		    publishThrustSetpoint(angular_velocity.timestamp_sample);
 
-	// vehicle_attitude_s v_att;
+		    /* check for updates in manual control topic */
+		    _manual_control_setpoint_sub.update(&_manual_control_setpoint);
 
-	// if (_vehicle_attitude_sub.update(&v_att)) {
+		    /* check for updates in vehicle status topic */
+		    _vehicle_status_sub.update(&_vehicle_status);
 
-	// 	// Guard against too small (< 0.2ms) and too large (> 20ms) dt's.
-	// 	// const float dt = math::constrain(((v_att.timestamp_sample - _last_run) * 1e-6f), 0.0002f, 0.02f);
-	// 	_last_run = v_att.timestamp_sample;
-	// 	float yaw = quaternionToYaw(v_att.q[0], v_att.q[1], v_att.q[2], v_att.q[3]);
-	// 	PX4_INFO("current yaw: %f", (double)yaw);
+		    parameter_update_poll();
+	    }
 
-	// 	double yaw_sp = 0.f;
-	// 	double yaw_err = (double)yaw * yaw_sp;
+	    perf_end(_loop_perf);
+    }
 
-	// 	if (yaw_err > 0.1){
-	// 		torque_cmd[2] = -0.2;
-	// 	}else if(yaw_err < -0.1){
-	// 		torque_cmd[2] = 0.2;
-	// 	}else{
-	// 		torque_cmd[2] = 0.f;
-	// 	}
-	// }
-
-	if (_vehicle_angular_velocity_sub.update(&angular_velocity)) {
-
-		/* run the rate controller immediately after a gyro update */
-		// publishTorqueSetpoint(angular_velocity.timestamp_sample);
-		publishTorqueSetpoint2(angular_velocity.timestamp_sample, angular_velocity.xyz[2]);
-		publishThrustSetpoint(angular_velocity.timestamp_sample);
-
-		/* check for updates in manual control topic */
-		_manual_control_setpoint_sub.update(&_manual_control_setpoint);
-
-		/* check for updates in vehicle status topic */
-		_vehicle_status_sub.update(&_vehicle_status);
-
-		parameter_update_poll();
-	}
-
-	perf_end(_loop_perf);
-}
 
 int ShadowliftAttitudeControl::task_spawn(int argc, char *argv[])
 {

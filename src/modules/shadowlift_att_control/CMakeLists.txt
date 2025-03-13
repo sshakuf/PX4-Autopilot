@@ -38,6 +38,7 @@ px4_add_module(
 	COMPILE_FLAGS
 	SRCS
 		shadowlift_att_control_main.cpp
+		shadowlift_att_control.hpp
 	DEPENDS
 		px4_work_queue
 	)
