@@ -50,6 +50,7 @@ private:
 	void publishTorqueSetpoint(const hrt_abstime &timestamp_sample);
 	void publishThrustSetpoint(const hrt_abstime &timestamp_sample);
 	void publishTorqueSetpoint2(const hrt_abstime &timestamp_sample, const float &current_yaw_rate);
+	void publishTorqueSetpoint3();
 
 	/**
 	 * Apply PID controller for X and Y axes acceleration control
@@ -88,6 +89,20 @@ private:
 
 	perf_counter_t _loop_perf;
 
+
+	float _yaw_heading_setpoint{0.0f};
+	float _yaw_heading_error{0.0f};
+	float _yaw_heading_error_prev{0.0f};
+	float _yaw_heading_error_integral{0.0f};
+	hrt_abstime _last_yaw_run{0};
+	bool _heading_hold_enabled{false};
+
+    // New method declarations
+    void updateHeadingSetpoint(float current_heading);
+    bool applyHeadingPidControl(float current_heading, float dt, float &yaw_output);
+
+
+
 	DEFINE_PARAMETERS(
 	(ParamFloat<px4::params::SL_YAWRATE_P>) _param_sl_yawrate_p,
 	(ParamFloat<px4::params::SL_YAWMAX_P>) _param_sl_yawmax_p,
@@ -98,6 +113,14 @@ private:
 	(ParamFloat<px4::params::SL_YACC_P>) _param_sl_yacc_p,
 	(ParamFloat<px4::params::SL_YACC_I>) _param_sl_yacc_i,
 	(ParamFloat<px4::params::SL_YACC_D>) _param_sl_yacc_d,
-	(ParamFloat<px4::params::SL_XY_MAXOUT>) _param_sl_xy_maxout
+	(ParamFloat<px4::params::SL_XY_MAXOUT>) _param_sl_xy_maxout,
+
+	(ParamFloat<px4::params::SL_YAW_P>) _param_sl_yaw_p,
+        (ParamFloat<px4::params::SL_YAW_I>) _param_sl_yaw_i,
+        (ParamFloat<px4::params::SL_YAW_D>) _param_sl_yaw_d,
+        (ParamFloat<px4::params::SL_YAW_IMAX>) _param_sl_yaw_imax,
+        (ParamFloat<px4::params::SL_PARAM1>) _param_sl_param1,
+        (ParamFloat<px4::params::SL_PARAM2>) _param_sl_param2
+
 	)
 };

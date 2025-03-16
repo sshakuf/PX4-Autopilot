@@ -24,8 +24,9 @@ if (Protobuf_FOUND)
             ${Protobuf_INCLUDE_DIRS}
     )
     target_link_libraries(px4_gz_msgs PUBLIC ${PROTOBUF_LIBRARIES})
+    target_compile_options(px4_gz_msgs PRIVATE -Wno-error=float-equal -Wno-double-promotion)
     if (Protobuf_VERSION VERSION_LESS "3.8")
-        target_compile_options(px4_gz_msgs PRIVATE -Wno-error=float-equal)
+        target_compile_options(px4_gz_msgs PRIVATE -Wno-error=float-equal -Wno-double-promotion)
     endif()
 
     # Export the binary dir for other modules

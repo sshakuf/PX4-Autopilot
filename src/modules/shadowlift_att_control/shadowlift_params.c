@@ -140,3 +140,60 @@ PARAM_DEFINE_FLOAT(SL_YACC_D, 0.001f);
  * @group Shadowlift Control
  */
 PARAM_DEFINE_FLOAT(SL_XY_MAXOUT, 0.5f);
+
+
+# Add these to your parameters definition file (likely in shadowlift_params.c)
+
+/**
+ * Yaw heading P gain
+ *
+ * Proportional gain for yaw heading control.
+ *
+ * @min 0.0
+ * @max 10.0
+ * @decimal 3
+ * @increment 0.01
+ * @group Shadowlift Attitude Control
+ */
+PARAM_DEFINE_FLOAT(SL_YAW_P, 2.0f);
+
+/**
+ * Yaw heading I gain
+ *
+ * Integral gain for yaw heading control.
+ *
+ * @min 0.0
+ * @max 5.0
+ * @decimal 3
+ * @increment 0.01
+ * @group Shadowlift Attitude Control
+ */
+PARAM_DEFINE_FLOAT(SL_YAW_I, 0.1f);
+
+/**
+ * Yaw heading D gain
+ *
+ * Derivative gain for yaw heading control.
+ *
+ * @min 0.0
+ * @max 2.0
+ * @decimal 3
+ * @increment 0.01
+ * @group Shadowlift Attitude Control
+ */
+PARAM_DEFINE_FLOAT(SL_YAW_D, 0.0f);
+
+/**
+ * Yaw heading integrator limit
+ *
+ * Maximum value for the yaw heading integrator.
+ *
+ * @min 0.0
+ * @max 1.0
+ * @decimal 2
+ * @increment 0.01
+ * @group Shadowlift Attitude Control
+ */
+PARAM_DEFINE_FLOAT(SL_YAW_IMAX, 0.3f);
+PARAM_DEFINE_FLOAT(SL_PARAM1, 0.0f);
+PARAM_DEFINE_FLOAT(SL_PARAM2, 0.0f);

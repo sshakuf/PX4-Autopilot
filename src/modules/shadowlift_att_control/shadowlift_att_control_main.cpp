@@ -42,6 +42,7 @@
 
 using namespace matrix;
 
+
 // In shadowlift_att_control.cpp add the implementation of the method:
 bool ShadowliftAttitudeControl::applyPidControl(float accel_x, float accel_y, float dt, float &x_output, float &y_output)
 {
@@ -169,6 +170,10 @@ ShadowliftAttitudeControl::init()
 		PX4_ERR("callback registration failed");
 		return false;
 	}
+	if (!_vehicle_attitude_sub.registerCallback()) {
+		PX4_ERR("callback registration failed");
+		return false;
+	}
 
 	return true;
 }
@@ -203,45 +208,187 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint(const hrt_abstime &timesta
 	_vehicle_torque_setpoint_pub.publish(v_torque_sp);
 }
 
-void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timestamp_sample, const float &current_yaw_rate)
+void ShadowliftAttitudeControl::updateHeadingSetpoint(float current_heading)
+{
+    // Check if the user is trying to control yaw
+    const bool manual_yaw_control = (fabsf(_manual_control_setpoint.yaw) > 0.05f);
+
+    // If user is controlling yaw, update the setpoint to current heading
+    if (manual_yaw_control) {
+        _yaw_heading_setpoint = current_heading;
+        _heading_hold_enabled = false;
+        _yaw_heading_error_integral = 0.0f; // Reset integrator
+    } else if (!_heading_hold_enabled) {
+        // If user has released yaw control, capture current heading as setpoint
+        _yaw_heading_setpoint = current_heading;
+        _heading_hold_enabled = true;
+    }
+    _yaw_heading_setpoint = .5f;
+}
+
+bool ShadowliftAttitudeControl::applyHeadingPidControl(float current_heading, float dt, float &yaw_output)
+{
+    // If heading hold is not enabled, don't apply PID
+    if (!_heading_hold_enabled) {
+        //return false;
+    }
+
+    // Calculate heading error (considering wrap-around)
+    _yaw_heading_error = _yaw_heading_setpoint - current_heading;
+    //_yaw_heading_error = _param_sl_param1.get();
+
+    // Normalize the error to range [-PI, PI]
+    if (_yaw_heading_error > M_PI_F) {
+        _yaw_heading_error -= 2.0f * M_PI_F;
+    } else if (_yaw_heading_error < -M_PI_F) {
+        _yaw_heading_error += 2.0f * M_PI_F;
+    }
+
+    // Anti-windup for integrator
+    const float max_integral = _param_sl_yaw_imax.get();
+    _yaw_heading_error_integral += _yaw_heading_error * dt;
+    _yaw_heading_error_integral = math::constrain(_yaw_heading_error_integral, -max_integral, max_integral);
+
+    // Calculate derivative (with filtering)
+    float yaw_error_derivative = (_yaw_heading_error - _yaw_heading_error_prev) / dt;
+    _yaw_heading_error_prev = _yaw_heading_error;
+
+    // Calculate PID output
+    yaw_output = _param_sl_yaw_p.get() * _yaw_heading_error +
+                _param_sl_yaw_i.get() * _yaw_heading_error_integral +
+                _param_sl_yaw_d.get() * yaw_error_derivative;
+
+    // Limit maximum output
+    const float max_output = _param_sl_yawmax_p.get();
+    yaw_output = math::constrain(yaw_output, -max_output, max_output);
+
+    return true;
+}
+
+// Modify the publishTorqueSetpoint2 method in shadowlift_att_control.cpp to use heading PID:
+void ShadowliftAttitudeControl::publishTorqueSetpoint3()
 {
 	vehicle_torque_setpoint_s v_torque_sp = {};
-	v_torque_sp.timestamp = hrt_absolute_time();
-	v_torque_sp.timestamp_sample = timestamp_sample;
 
-	float yaw_rate_sp = _manual_control_setpoint.yaw; //  0.f;
-	float yaw_rate_err = yaw_rate_sp- current_yaw_rate;
+	// Get current vehicle attitude for heading control
+	vehicle_attitude_s vehicle_attitude;
+	//float current_heading = 0.0f;
 
-	const float max_yaw_torque = _param_sl_yawmax_p.get();
+	_vehicle_attitude_sub.update(&vehicle_attitude);
+		PX4_INFO("Updating torque setpoint");
 
-	float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
-	yaw_torque = yaw_torque > max_yaw_torque ? max_yaw_torque: yaw_torque;
-	yaw_torque = yaw_torque < -max_yaw_torque ? -max_yaw_torque: yaw_torque;
 
-	// zero actuators if not armed
-	if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
+	if (_vehicle_attitude_sub.updated()) {
+
+		PX4_INFO("Updating torque setpoint");
+	    v_torque_sp.timestamp = hrt_absolute_time();
+	    v_torque_sp.timestamp_sample = vehicle_attitude.timestamp_sample;
+	    // Extract yaw (heading) from quaternion
+	    const Quatf q(vehicle_attitude.q);
+	    const Eulerf euler(q);
+	    //current_heading = euler.psi();
+
+	    // Calculate time step
+	   // const float dt = math::constrain(((timestamp_sample - _last_yaw_run) * 1e-6f), 0.0002f, 0.02f);
+
+	//     // Update heading setpoint based on user input
+	//     updateHeadingSetpoint(current_heading);
+
+	    // Apply PID control for heading
+	    //float yaw_output = 0.0f;
+	    //bool pid_active = applyHeadingPidControl(current_heading, dt, yaw_output);
+
+	    v_torque_sp.xyz[2] = 0.1f;
+
+	    // zero actuators if not armed
+	    if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
 		v_torque_sp.xyz[0] = 0.f;
 		v_torque_sp.xyz[1] = 0.f;
-		v_torque_sp.xyz[2] = yaw_torque;
+
+		bool pid_active = true;
+		if (pid_active) {
+		    // Use heading PID output
+		    // v_torque_sp.xyz[2] = yaw_output;
+		    v_torque_sp.xyz[2] = _param_sl_yaw_p.get() * _param_sl_param1.get();
+		}
+	  }
+	    //_last_yaw_run = timestamp_sample;
 	}
 
 	_vehicle_torque_setpoint_pub.publish(v_torque_sp);
+    }
+
+
+void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timestamp_sample, const float &current_yaw_rate)
+{
+    vehicle_torque_setpoint_s v_torque_sp = {};
+    v_torque_sp.timestamp = hrt_absolute_time();
+    v_torque_sp.timestamp_sample = timestamp_sample;
+
+    // Get current vehicle attitude for heading control
+    vehicle_attitude_s vehicle_attitude;
+    float current_heading = 0.0f;
+
+    //PX4_INFO("stupid log");
+
+    if (_vehicle_attitude_sub.update(&vehicle_attitude)) {
+	//PX4_INFO("stupid log2");
+        // Extract yaw (heading) from quaternion
+        const Quatf q(vehicle_attitude.q);
+        const Eulerf euler(q);
+        current_heading = euler.psi();
+
+        // Calculate time step
+        const float dt = math::constrain(((timestamp_sample - _last_yaw_run) * 1e-6f), 0.0002f, 0.02f);
+
+        // Update heading setpoint based on user input
+        updateHeadingSetpoint(current_heading);
+
+        // Apply PID control for heading
+        float yaw_output = 0.0f;
+        bool pid_active = applyHeadingPidControl(current_heading, dt, yaw_output);
+
+        // zero actuators if not armed
+        if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
+            v_torque_sp.xyz[0] = 0.f;
+            v_torque_sp.xyz[1] = 0.f;
+
+            if (pid_active) {
+                // Use heading PID output
+                 v_torque_sp.xyz[2] = yaw_output;
+		//v_torque_sp.xyz[2] = _param_sl_yaw_p.get() * _param_sl_param1.get();
+            } else {
+                // Use manual yaw input or rate control
+                float yaw_rate_sp = _manual_control_setpoint.yaw;
+                float yaw_rate_err = yaw_rate_sp - current_yaw_rate;
+
+                const float max_yaw_torque = _param_sl_yawmax_p.get();
+                float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
+                yaw_torque = math::constrain(yaw_torque, -max_yaw_torque, max_yaw_torque);
+
+                v_torque_sp.xyz[2] = yaw_torque;
+            }
+        }
+
+        _last_yaw_run = timestamp_sample;
+    } else {
+        // Fallback to simple rate control if attitude data is not available
+        // if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
+        //     float yaw_rate_sp = _manual_control_setpoint.yaw;
+        //     float yaw_rate_err = yaw_rate_sp - current_yaw_rate;
+
+        //     const float max_yaw_torque = _param_sl_yawmax_p.get();
+        //     float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
+        //     yaw_torque = math::constrain(yaw_torque, -max_yaw_torque, max_yaw_torque);
+
+        //     v_torque_sp.xyz[0] = 0.f;
+        //     v_torque_sp.xyz[1] = 0.f;
+        //     v_torque_sp.xyz[2] = yaw_torque;
+        // }
+    }
+
+    _vehicle_torque_setpoint_pub.publish(v_torque_sp);
 }
-
-// void ShadowliftAttitudeControl::publishThrustSetpoint(const hrt_abstime &timestamp_sample)
-// {
-// 	vehicle_thrust_setpoint_s v_thrust_sp = {};
-// 	v_thrust_sp.timestamp = hrt_absolute_time();
-// 	v_thrust_sp.timestamp_sample = timestamp_sample;
-
-// 	// zero actuators if not armed
-// 	if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
-// 		v_thrust_sp.xyz[0] = _manual_control_setpoint.pitch;
-// 		v_thrust_sp.xyz[1] = _manual_control_setpoint.roll;
-// 	}
-
-// 	_vehicle_thrust_setpoint_pub.publish(v_thrust_sp);
-// }
 
 double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
 	return std::atan2(2.0 * (q_w * q_z + q_x * q_y), 1.0 - 2.0 * (q_y * q_y + q_z * q_z));
@@ -270,13 +417,14 @@ double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
 	    /* run controller on gyro changes */
 	    vehicle_angular_velocity_s angular_velocity;
 
-	    if (_vehicle_angular_velocity_sub.update(&angular_velocity)) {
+	    _vehicle_angular_velocity_sub.update(&angular_velocity);
+	    //if (_vehicle_angular_velocity_sub.update(&angular_velocity)) {
 		    /* run the rate controller immediately after a gyro update */
 		    // Handle yaw control
 		    publishTorqueSetpoint2(angular_velocity.timestamp_sample, angular_velocity.xyz[2]);
-
+		//     publishTorqueSetpoint3();
 		    // Handle x/y stabilization or manual control
-		    publishThrustSetpoint(angular_velocity.timestamp_sample);
+		    //publishThrustSetpoint(angular_velocity.timestamp_sample);
 
 		    /* check for updates in manual control topic */
 		    _manual_control_setpoint_sub.update(&_manual_control_setpoint);
@@ -285,7 +433,7 @@ double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
 		    _vehicle_status_sub.update(&_vehicle_status);
 
 		    parameter_update_poll();
-	    }
+	    //}
 
 	    perf_end(_loop_perf);
     }
