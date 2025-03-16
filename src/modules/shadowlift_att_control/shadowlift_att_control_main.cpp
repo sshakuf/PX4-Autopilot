@@ -41,7 +41,10 @@
 #include "shadowlift_att_control.hpp"
 
 using namespace matrix;
-
+int count =0;
+int count1 =0;
+float count2 =0;
+int count3 =0;
 
 // In shadowlift_att_control.cpp add the implementation of the method:
 bool ShadowliftAttitudeControl::applyPidControl(float accel_x, float accel_y, float dt, float &x_output, float &y_output)
@@ -265,60 +268,6 @@ bool ShadowliftAttitudeControl::applyHeadingPidControl(float current_heading, fl
     return true;
 }
 
-// Modify the publishTorqueSetpoint2 method in shadowlift_att_control.cpp to use heading PID:
-void ShadowliftAttitudeControl::publishTorqueSetpoint3()
-{
-	vehicle_torque_setpoint_s v_torque_sp = {};
-
-	// Get current vehicle attitude for heading control
-	vehicle_attitude_s vehicle_attitude;
-	//float current_heading = 0.0f;
-
-	_vehicle_attitude_sub.update(&vehicle_attitude);
-		PX4_INFO("Updating torque setpoint");
-
-
-	if (_vehicle_attitude_sub.updated()) {
-
-		PX4_INFO("Updating torque setpoint");
-	    v_torque_sp.timestamp = hrt_absolute_time();
-	    v_torque_sp.timestamp_sample = vehicle_attitude.timestamp_sample;
-	    // Extract yaw (heading) from quaternion
-	    const Quatf q(vehicle_attitude.q);
-	    const Eulerf euler(q);
-	    //current_heading = euler.psi();
-
-	    // Calculate time step
-	   // const float dt = math::constrain(((timestamp_sample - _last_yaw_run) * 1e-6f), 0.0002f, 0.02f);
-
-	//     // Update heading setpoint based on user input
-	//     updateHeadingSetpoint(current_heading);
-
-	    // Apply PID control for heading
-	    //float yaw_output = 0.0f;
-	    //bool pid_active = applyHeadingPidControl(current_heading, dt, yaw_output);
-
-	    v_torque_sp.xyz[2] = 0.1f;
-
-	    // zero actuators if not armed
-	    if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
-		v_torque_sp.xyz[0] = 0.f;
-		v_torque_sp.xyz[1] = 0.f;
-
-		bool pid_active = true;
-		if (pid_active) {
-		    // Use heading PID output
-		    // v_torque_sp.xyz[2] = yaw_output;
-		    v_torque_sp.xyz[2] = _param_sl_yaw_p.get() * _param_sl_param1.get();
-		}
-	  }
-	    //_last_yaw_run = timestamp_sample;
-	}
-
-	_vehicle_torque_setpoint_pub.publish(v_torque_sp);
-    }
-
-
 void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timestamp_sample, const float &current_yaw_rate)
 {
     vehicle_torque_setpoint_s v_torque_sp = {};
@@ -329,10 +278,12 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
     vehicle_attitude_s vehicle_attitude;
     float current_heading = 0.0f;
 
-    //PX4_INFO("stupid log");
+    vehicle_attitude.q[0] = 1.0f;
 
     if (_vehicle_attitude_sub.update(&vehicle_attitude)) {
-	//PX4_INFO("stupid log2");
+	count++;
+    vehicle_attitude.q[0] = 2.0f;
+    //PX4_INFO("stupid log2");
         // Extract yaw (heading) from quaternion
         const Quatf q(vehicle_attitude.q);
         const Eulerf euler(q);
@@ -354,8 +305,10 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
             v_torque_sp.xyz[1] = 0.f;
 
             if (pid_active) {
+		count1++;
                 // Use heading PID output
                  v_torque_sp.xyz[2] = yaw_output;
+		 count2 = yaw_output;
 		//v_torque_sp.xyz[2] = _param_sl_yaw_p.get() * _param_sl_param1.get();
             } else {
                 // Use manual yaw input or rate control
@@ -366,28 +319,16 @@ void ShadowliftAttitudeControl::publishTorqueSetpoint2(const hrt_abstime &timest
                 float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
                 yaw_torque = math::constrain(yaw_torque, -max_yaw_torque, max_yaw_torque);
 
-                v_torque_sp.xyz[2] = yaw_torque;
+                //v_torque_sp.xyz[2] = yaw_torque;
+		v_torque_sp.xyz[2] = 0.2f;
             }
         }
 
         _last_yaw_run = timestamp_sample;
-    } else {
-        // Fallback to simple rate control if attitude data is not available
-        // if (_vehicle_status.arming_state == vehicle_status_s::ARMING_STATE_ARMED) {
-        //     float yaw_rate_sp = _manual_control_setpoint.yaw;
-        //     float yaw_rate_err = yaw_rate_sp - current_yaw_rate;
+	_vehicle_torque_setpoint_pub.publish(v_torque_sp);
+	}
 
-        //     const float max_yaw_torque = _param_sl_yawmax_p.get();
-        //     float yaw_torque = _param_sl_yawrate_p.get() * yaw_rate_err;
-        //     yaw_torque = math::constrain(yaw_torque, -max_yaw_torque, max_yaw_torque);
 
-        //     v_torque_sp.xyz[0] = 0.f;
-        //     v_torque_sp.xyz[1] = 0.f;
-        //     v_torque_sp.xyz[2] = yaw_torque;
-        // }
-    }
-
-    _vehicle_torque_setpoint_pub.publish(v_torque_sp);
 }
 
 double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
@@ -405,14 +346,7 @@ double quaternionToYaw(double q_w, double q_x, double q_y, double q_z) {
 
 	    perf_begin(_loop_perf);
 
-	    // Check if parameters have changed
-	    if (_parameter_update_sub.updated()) {
-		    // clear update
-		    parameter_update_s param_update;
-		    _parameter_update_sub.copy(&param_update);
 
-		    updateParams();
-	    }
 
 	    /* run controller on gyro changes */
 	    vehicle_angular_velocity_s angular_velocity;
@@ -465,6 +399,10 @@ int ShadowliftAttitudeControl::task_spawn(int argc, char *argv[])
 int ShadowliftAttitudeControl::print_status()
 {
 	PX4_INFO("Running GK modified code");
+	PX4_INFO("count %d", count);
+	PX4_INFO("count2 - pid_active %d", count1);
+	PX4_INFO("count3 - not active %d", count3);
+	PX4_INFO("yaw_output %f", (double)count2);
 
 	perf_print_counter(_loop_perf);
 
