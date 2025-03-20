@@ -67,10 +67,11 @@ private:
 	uORB::SubscriptionInterval _parameter_update_sub{ORB_ID(parameter_update), 1_s};
 	uORB::Subscription _vehicle_status_sub{ORB_ID(vehicle_status)};
 	uORB::Subscription _manual_control_setpoint_sub{ORB_ID(manual_control_setpoint)};
-	uORB::Subscription _sensor_accel_sub{ORB_ID(sensor_accel)};
+	//uORB::Subscription _sensor_accel_sub{ORB_ID(sensor_accel)};
 
 	uORB::SubscriptionCallbackWorkItem _vehicle_angular_velocity_sub{this, ORB_ID(vehicle_angular_velocity)};
 	uORB::SubscriptionCallbackWorkItem _vehicle_attitude_sub{this, ORB_ID(vehicle_attitude)};
+	uORB::SubscriptionCallbackWorkItem _sensor_accel_sub{this, ORB_ID(sensor_accel)};
 
 
 	uORB::Publication<vehicle_thrust_setpoint_s>    _vehicle_thrust_setpoint_pub{ORB_ID(vehicle_thrust_setpoint)};
@@ -99,10 +100,12 @@ private:
 	bool _heading_hold_enabled{false};
 
     // New method declarations
-    void updateHeadingSetpoint(float current_heading);
+    void updateHeadingSetpoint(float current_heading, float dt);
     bool applyHeadingPidControl(float current_heading, float dt, float &yaw_output);
 
-
+        static ShadowliftAttitudeControl *_object;
+	void do1(int loop_count);
+	void do2(int loop_count);
 
 	DEFINE_PARAMETERS(
 	(ParamFloat<px4::params::SL_YAWRATE_P>) _param_sl_yawrate_p,
@@ -121,7 +124,11 @@ private:
         (ParamFloat<px4::params::SL_YAW_D>) _param_sl_yaw_d,
         (ParamFloat<px4::params::SL_YAW_IMAX>) _param_sl_yaw_imax,
         (ParamFloat<px4::params::SL_PARAM1>) _param_sl_param1,
-        (ParamFloat<px4::params::SL_PARAM2>) _param_sl_param2
+        (ParamFloat<px4::params::SL_PARAM2>) _param_sl_param2,
+
+	(ParamInt<px4::params::SL_YAW_PID_EN>) _param_sl_yaw_pid_enabled,
+	(ParamInt<px4::params::SL_XY_PID_EN>) _param_sl_xy_pid_enabled
+
 
 	)
 };
